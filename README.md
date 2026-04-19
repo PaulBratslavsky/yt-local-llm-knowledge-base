@@ -39,13 +39,20 @@ yarn setup
 # 2. Pull a model (or bring your own)
 ollama pull gemma4-kb:latest   # or gemma3, llama3.2, qwen2.5 — any chat-capable
 
-# 3. Start Ollama + Strapi + the client together
+# 3. (Optional) Load example videos so the feed isn't empty on first run.
+#    Reads server/seed-data/seed.tar.gz. Only run BEFORE starting Strapi —
+#    the import needs exclusive write access to the SQLite DB.
+yarn seed
+
+# 4. Start Ollama + Strapi + the client together
 yarn start
 ```
 
 Open `http://localhost:3000`, paste a YouTube URL on `/new-post`. The row is created immediately; the AI summary runs in the background and lands on `/learn/$videoId` when done.
 
 > `yarn start` is a convenience wrapper that sets Ollama env vars (`OLLAMA_KEEP_ALIVE=15m`, `OLLAMA_NUM_PARALLEL=1`) and then runs `yarn dev`. Use `yarn start:fresh` to hard-restart Ollama first (required after changing `OLLAMA_NUM_PARALLEL`).
+
+> **Seed data.** `yarn seed` runs `strapi import` against `server/seed-data/seed.tar.gz` and **replaces** any existing content in the matching collections. To capture your own library as a seed, stop the dev server and run `yarn export` — it writes to the same path, ready to commit.
 
 ---
 
@@ -137,7 +144,30 @@ e.g. `/web tanstack ai documentation`. The tool call is visible as an expandable
 
 ### `server/.env`
 
-Standard Strapi secrets (`APP_KEYS`, `JWT_SECRET`, etc.). Generate each with `openssl rand -base64 16`.
+Standard Strapi config. `yarn setup` copies `server/.env.example` into `server/.env` with sane local defaults; regenerate the secrets before shipping anywhere beyond your laptop.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `HOST` | `0.0.0.0` | Bind address for the Strapi HTTP server |
+| `PORT` | `1337` | Strapi port — must match `STRAPI_URL` in `client/.env` |
+| `APP_KEYS` | *(generated)* | Comma-separated session cookie signing keys. **Regenerate for any non-local deploy.** |
+| `API_TOKEN_SALT` | *(generated)* | Salt used when hashing issued API tokens |
+| `ADMIN_JWT_SECRET` | *(generated)* | Signs admin-panel JWTs |
+| `TRANSFER_TOKEN_SALT` | *(generated)* | Salt for the transfer-tokens used by `strapi export` / `strapi import` |
+| `ENCRYPTION_KEY` | *(generated)* | Symmetric key for Strapi's field-level encryption |
+| `JWT_SECRET` | *(generated)* | Signs users-and-permissions JWTs |
+| `DATABASE_CLIENT` | `sqlite` | `sqlite` for local dev; set to `postgres` (or `mysql`) in production |
+| `DATABASE_FILENAME` | `.tmp/data.db` | SQLite file path (relative to `server/`). Ignored when `DATABASE_CLIENT` is not sqlite |
+| `DATABASE_HOST` / `_PORT` / `_NAME` / `_USERNAME` / `_PASSWORD` | *(empty)* | Connection details for Postgres/MySQL. Leave empty for SQLite. |
+| `DATABASE_SSL` | `false` | Enable SSL for the DB connection (managed Postgres providers usually require this) |
+
+**Regenerating secrets:** each of the six `*_KEY` / `*_SECRET` / `*_SALT` values is just a base64-encoded 16-byte random string. Regenerate with:
+
+```bash
+openssl rand -base64 16
+```
+
+For `APP_KEYS`, generate four and comma-separate them.
 
 ---
 
