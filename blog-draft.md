@@ -1,49 +1,42 @@
+# Building a Local-First AI App with Gemma 4, Ollama, and TanStack AI
+
 **TL;DR**
 
-- We built **YT Knowledge Base** — a 100% local-first app that turns any YouTube video into a structured AI summary you can chat with, with deterministic timecode citations, BM25 retrieval, and a `/web` slash-command escape hatch — no cloud APIs, no accounts.
-- The stack is **TanStack Start + React 19 + Tailwind v4** on the front, **Strapi 5** on the back, and **Ollama** running a local Gemma model for every LLM call.
-- All data fetching, mutations, and the streaming chat endpoint go through the **TanStack ecosystem** — `react-form` for the share form, `createServerFn` for RPC-style data fetching, and **TanStack AI** with the `@tanstack/ai-ollama` adapter for both structured summary generation and tool-calling chat.
-- Long videos auto-switch to a **map-reduce** summary pipeline. Short videos run **single-pass**. Either way, the model never invents timestamps — they're recovered from the transcript via **BM25 grounding** after the fact.
+- **YT Knowledge Base** — a local-first app that ingests a YouTube URL, runs the transcript through a local Ollama model to produce a Zod-validated structured summary, then exposes a chat panel over the same transcript using BM25 retrieval plus a `web_search` tool for questions the transcript doesn't cover.
+- The stack is **TanStack Start + React 19 + Tailwind v4** on the front, **Strapi 5** on the back, and **Ollama** running a local Gemma 4 model for every LLM call.
+- All data fetching, mutations, and the streaming chat endpoint go through the **TanStack ecosystem** — `@tanstack/react-form` for the share form, `createServerFn` for RPC-style data fetching, and **TanStack AI** with the `@tanstack/ai-ollama` adapter for both structured summary generation and tool-calling chat.
+- Long videos auto-switch to a **map-reduce** summary pipeline; short videos run **single-pass**. The hardest bug along the way was timecode hallucination — the model would confidently emit `[mm:ss]` markers that pointed to the wrong parts of the video. We tried stricter prompts, stricter schemas, and in-prompt timecode anchors before landing on the fix: **forbid the model from emitting timecodes at all, then recover them deterministically from the transcript via BM25**. Detailed in section 4.
 - The chat side uses **contextual retrieval + query rewriting + reciprocal rank fusion** for top-k chunks, then streams **AG-UI-format SSE** back to the browser, including expandable tool-call panels when the model invokes `web_search`.
 
-![Hero shot — paste a URL, get a summary + chat](placeholder://hero-paste-url-summary-chat.png "Replace with: hero screenshot of the /learn page showing summary, walkthrough, video, and chat panel")
+[add video here]
 
 ## What we built
 
-YT Knowledge Base is a single-user, local-first knowledge base for YouTube videos. The pitch is short: paste a URL, and a few minutes later you have a structured, AI-generated summary — title, description, key takeaways, a chronological walkthrough with clickable timecodes, and concrete action steps. Below the summary, a streaming chat panel lets you ask follow-up questions about the video, with citations that seek the player when you click them, and a built-in `web_search` tool the model can call when the transcript doesn't cover your question.
+YT Knowledge Base is a single-user, local-first knowledge base for YouTube videos. The app takes a YouTube URL, pulls the caption track in-process via `youtubei.js`, cleans and chunks the transcript, and runs it through a local Ollama model with a Zod `outputSchema` to produce a structured summary — title, description, key takeaways, chronological sections, and action steps. 
 
-Three things make it different from "just paste this into ChatGPT":
+The `/learn/:videoId` route renders that summary next to the embedded player; section headings and in-chat citations are `[mm:ss]` chips that call `player.seekTo()`. The chat panel is a TanStack Start file route that streams AG-UI-format SSE, runs BM25 over the stored transcript index for retrieval, and exposes a single `web_search` tool the model can invoke when the retrieved chunks don't cover the question.
 
-1. **It runs entirely on your machine.** Inference happens in [Ollama](https://ollama.com). Storage is [Strapi](https://strapi.io) on SQLite. Captions are pulled in-process via [`youtubei.js`](https://github.com/LuanRT/YouTube.js). 
-2. **Citations.** The model is explicitly instructed *not* to emit timecodes. After generation, every section heading and every `[mm:ss]` chip in chat answers is matched back to the transcript via BM25 — the chip points to the *real* caption-segment start, not whatever the model halucinated.
-3. **Long videos work.** Above ~15K tokens, the summary pipeline switches from a single-pass call to a map-reduce flow that summarizes ~17-minute windows in parallel, then synthesizes the final structured output from those bullet notes.
+Three questions we wanted to answer while building this, and where we landed:
 
-![What we built — annotated screenshot of the learn page](placeholder://annotated-learn-page.png "Replace with: annotated screenshot calling out summary sections, timecode chips, video player, chat panel")
+1. **Can the whole app actually run locally?** The goal was no hosted APIs at all. We ended up with inference on [Ollama](https://ollama.com), storage on [Strapi](https://strapi.io) + SQLite, and captions pulled in-process via [`youtubei.js`](https://github.com/LuanRT/YouTube.js). No third-party summarization or transcription service — though how well this keeps working for the edge cases (gated videos, videos with no captions) is something we're still figuring out.
+2. **How do you stop a local model from inventing timestamps?** This turned out to be the hardest bug in the project — section 4 walks through what we tried and what we settled on. Short version: summary sections forbid the model from emitting timecodes at all (BM25 recovers them from the transcript after generation), and chat citations are emitted by the model but verified against the BM25 index on the client, with drifts flagged.
+3. **Can a small local model write a good summary of a long video?** Not in one pass, based on what we saw. Above ~15K estimated tokens, `generateSummaryWithAI()` switches to a map step that summarizes ~17-minute windows in parallel, followed by a reduce step that synthesizes the final schema-validated output from those bullet notes. The cutover value (15K) came from trial and error.
+
+![001-hero.png](img/001-hero.png)
 
 ## Why I built this
 
-Two things motivated this project, and they ended up reinforcing each other.
+Two things I wanted to explore with this project.
 
-**First, I wanted a serious excuse to explore local models.** The hosted-LLM ecosystem is great, but it makes you forget what's actually running underneath — every API call hides the model, the prompt template, the tokenizer, the context budget, the inference loop. Building something non-trivial against a local Ollama instance forces all of that back into view: you feel the difference between a 4B and an 8B model, you watch your KV cache eat your VRAM, you learn that `temperature: 0.3` versus `1.0` is the difference between "grounded summary" and "creative fiction". I wanted a project where those choices were *mine*, not abstracted away behind someone else's API.
+The first was a question I kept circling around: how realistic is it, right now, to build something useful on local models and local hardware — nothing calling out to a hosted frontier model, and everything working offline? 
 
-A few specific things I wanted to learn by doing:
+Most of my hands-on AI work so far had been against hosted APIs, and I wanted to know what actually changes when you don't have one. Does the same kind of pipeline (structured outputs, tool use, map-reduce over long inputs, retrieval with grounding) still hold together against a local Ollama instance? A few specific things I wanted to learn by actually building it:
 
-- How far can a small local model go on a real, structured task — not just "tell me a joke" but JSON-mode constrained outputs, tool calling, and multi-step retrieval pipelines?
-- What does the agentic loop actually look like when you control every layer of it (TanStack AI's `chat()` + adapter + tools)?
-- Where is the line between "BM25 is enough" and "you need embeddings"? You don't really know until you ship something against both edges.
+- How far a small local model (~4B effective params at Q4) actually goes on JSON-mode constrained outputs and tool calling.
+- What the TanStack AI agent loop (`chat()` + adapter + tools) looks like end-to-end when you own every layer.
+- Where BM25 stops being enough and embeddings start paying off — the only way to answer that is to ship something and measure.
 
-**Second, I wanted a better way to consume YouTube.** YouTube has become one of the most important publishing surfaces for technical content — talks, tutorials, conference recordings, founder interviews — but the actual *consumption* experience is terrible. There's no way to skim. Every video is a fixed-duration linear commitment. The thumbnail and title tell you almost nothing about whether the next 45 minutes are worth your time. By the time you find out a video is mostly filler or doesn't cover the thing you actually wanted, you've already spent 20 minutes scrubbing.
-
-I wanted an app that lets you **audit a video before committing to it**:
-
-- Read a 60-second structured summary — title, takeaways, walkthrough, action steps — and decide whether the video is worth your time at all.
-- If it is, jump straight to the section you actually care about via clickable `[mm:ss]` chips, instead of scrubbing blindly.
-- If you have a specific question ("does this talk cover X?"), ask it in chat and get an answer with grounded citations *before* you press play.
-- Build a personal library over time — the videos you've vetted, summarized, and chatted with — that you can search and revisit later, without trusting any of it to a third-party service.
-
-The local-first piece matters here too: the videos *I* find worth keeping are mine, the notes I add are mine, and none of it lives on someone else's server waiting to be re-trained on or rate-limited. It's a personal knowledge base, not a SaaS account.
-
-So that's the why: a chance to build something real on top of local models, in service of consuming YouTube less wastefully. The two motivations turned out to fit together neatly — efficient consumption needs structured summaries and grounded chat, and local models are exactly capable enough (with the right pipeline around them) to deliver both.
+The second was practical. I wanted something that let me quickly skim a YouTube video to tell whether it was worth my time, with the ability to ask follow-up questions, and keep the summary around as a learning resource I could come back to later.
 
 ## Tech used
 
@@ -98,7 +91,7 @@ flowchart TB
     Tools --> DDG
 ```
 
-Three Strapi content types hold everything:
+Three Strapi content types used:
 
 - **Transcript** — immutable per `youtubeVideoId`. Caption segments + duration + title. Created once, reused across every regeneration so YouTube is never re-hit.
 - **Video** — your instance of a video. Holds the AI summary, sections, takeaways, action steps, BM25 retrieval index, and your own notes.
@@ -210,7 +203,7 @@ The route validates URL search params with Zod, declares them as loader deps, an
 
 ### 2. Summary generation: TanStack AI + Ollama with structured output
 
-The summary pipeline is where TanStack AI does the heavy lifting. We instantiate the Ollama adapter once per model and reuse it across calls:
+Most of the real work on the summary side goes through TanStack AI. We create the Ollama adapter once per model and reuse it across calls:
 
 ```ts
 // client/src/lib/services/learning.ts
@@ -469,7 +462,11 @@ sequenceDiagram
     C-->>U: render deltas + tool panel + sources
 ```
 
-When the model's tool reliability isn't enough (Gemma at 4B-effective params lands around 42% on Tau2 for tool calling), the user can force a search by typing `/web <query>` — the client rewrites the message into an explicit instruction that bypasses the model's discretion entirely:
+We added the `/web` slash command mostly as a testing. Small local models are generally less reliable at tool calling than hosted frontier ones — the [Berkeley Function Calling Leaderboard](https://gorilla.cs.berkeley.edu/leaderboard.html) is the standard place to compare if you want numbers, though Gemma 4 isn't on it yet (we'd expect it to score better than earlier Gemma releases, but that's a guess until someone runs the eval). Either way, we wanted a way to force a `web_search` call without depending on the model's discretion during testing.
+
+Anecdotally though, in my own testing the model picked up `web_search` on its own most of the time the question clearly wasn't covered by the transcript.
+
+I needed `/web` less often than I expected. Still useful to have for reproducible testing, and for the cases where the model tries to answer from transcript passages that don't really cover the question. The client rewrites the message into an explicit instruction when `/web` is used:
 
 ```ts
 function transformSlashCommand(input: string): string {
@@ -488,9 +485,33 @@ function transformSlashCommand(input: string): string {
 
 ### 4. Deterministic grounding: BM25 over real caption timestamps
 
-The single design choice that holds everything together is that **the model never produces timecodes**. It produces section headings, body text, and chat answers — and a separate, deterministic post-processing pass attaches real caption-segment start times to each one.
+#### The problem: models hallucinate timecodes
 
-To do that we need a way to ask, *given this snippet of text the model wrote, which window of the transcript was it talking about?* That's a classic information-retrieval problem, and the algorithm we picked for it is **BM25**.
+The first version of this pipeline let the summary model generate timecodes directly. The schema had a `timeSec` field on each section, and the system prompt asked the model to fill it in from the transcript. 
+
+On short videos it mostly worked. On anything past 30 minutes it fell apart — the model emitted confidently wrong timestamps. 
+
+A section about "testing" would point to a timestamp from an earlier product-demo segment. 
+
+Chat answers cited `[28:14]` when the relevant content was at `10:02`. The model wasn't *reading* timestamps off the transcript; it was pattern-matching what a timestamp looked like and producing one that felt plausible.
+
+We tried fixes in the order we thought of them:
+
+1. **Stricter system prompt.** Added an explicit rule: *"the `timeSec` field must be the real caption start from the transcript; do not guess."* The model obeyed the *format* of the rule and kept guessing.
+2. **Tighter Zod schema.** Narrowed the type to `z.number().int().nonnegative()` and added schema-level `.describe()` hints. Same result — well-formed numbers that pointed to the wrong place.
+3. **In-prompt timecode anchors.** Injected `[mm:ss]` markers into the transcript at 15-second intervals before sending it, hoping the model would copy one into `timeSec` instead of inventing. It helped for sections near the front of the video, then got worse toward the back as the model's attention thinned.
+
+Each of these looked like a fix on short test clips and then quietly fell apart the moment we ran a real 45-minute video through it. 
+
+The underlying problem is that asking a language model to emit a factual pointer into its own input is asking it to do the one thing language models are worst at, precise factual recall over a long context. 
+
+You end up with confident wrong answers, and the user has no way to tell which timecodes are real and which aren't.
+
+#### The fix: forbid timecodes, recover them from the transcript
+
+The design we landed on flips the problem. **The model isn't allowed to produce timecodes at all.** The system prompt explicitly forbids them; the `timeSec` field is omitted from generation; any `[mm:ss]` that slips through is stripped. The model's job is purely semantic — write a good section heading, a good section body, a good chat answer.
+
+A separate, deterministic pass then attaches real caption-segment start times to those outputs by asking: *given this snippet of text the model wrote, which window of the transcript was it actually talking about?* That's a classic information-retrieval problem, and the algorithm we picked for it is **BM25** — lexical, cheap, and deterministic. Same text plus same transcript always returns the same chunk, which is exactly the property a grounding pass needs.
 
 #### What is BM25, exactly?
 
@@ -562,21 +583,19 @@ flowchart LR
     G --> U["Sources accordion<br/>with snippets"]
 ```
 
-#### Why we picked BM25 (and not embeddings)
+#### How we ended up on BM25
 
-The default move in 2026 for "I have text and I want to retrieve relevant chunks" is to embed everything with a sentence-transformer model and query a vector store. We considered it. We didn't pick it.
+Honestly, I wanted to explore something other than building a standard RAG — embed everything with a sentence-transformer, stick it in a vector store, query with cosine similarity. That's the well-trodden path, and it felt worth seeing what else was out there before defaulting to it. That's how I stumbled on BM25.
 
-The reasoning, in order of how much it actually mattered:
+Once I started reading into it, a few things clicked for this particular app:
 
-1. **The whole transcript fits in the model's context.** Even a 90-minute video is ~22K tokens. Gemma's 32K context window means we're never doing retrieval to compress information that wouldn't otherwise fit — we're doing retrieval to *focus the model's attention* on the most relevant ~5K tokens. For that job, BM25 is more than sharp enough.
-2. **Local-first means no extra model downloads.** Adding embeddings would mean shipping a sentence-transformer alongside Gemma — another GB+ of VRAM, another moving part to keep updated, another thing that goes wrong on first run. BM25 is a few dozen lines of JS; it has no install step.
-3. **No vector store to operate.** No pgvector, no Qdrant, no SQLite-VSS extension. The index is plain JSON in a Strapi field. To regenerate it we recompute term frequencies in-process — takes milliseconds even on long transcripts.
-4. **The lexical-vs-semantic gap is mostly closed by the layers above.** Contextual retrieval handles vocabulary mismatch ("shipped" vs "launched") at the chunk level. Multi-query rewriting + RRF handles it at the query level. By the time those two are doing their work, the residual gap that an embedding model would close is small enough not to be worth the operational cost.
-5. **Grounding needs a deterministic answer, not a similarity score.** When we're snapping a `[mm:ss]` chip back to a real caption timestamp, we want the *most lexically grounded* match — the one that actually shares words with what the model wrote. That's exactly what BM25 measures. An embedding model would happily return a "semantically similar" chunk from the wrong part of the video, which would silently make every citation lie.
+- The whole transcript fits in context anyway (~22K tokens even for a 90-minute video, and Gemma has a 32K window), so retrieval here is really just narrowing the model's attention — not compressing information that wouldn't otherwise fit. For that narrower job BM25 felt plenty sharp.
+- It's a few dozen lines of JS with no install step. No sentence-transformer to ship alongside Gemma, no extra GB of VRAM, no vector store to operate (no pgvector, no Qdrant, no SQLite-VSS). The index is just JSON sitting in a Strapi field.
+- For the timecode grounding pass specifically, we actually *want* a lexical match — the chunk that shares words with what the model wrote is the one that's literal evidence for the citation. An embedding model would happily hand back a "semantically similar" chunk from the wrong part of the video, and because the result looks plausible the citation would silently lie.
 
-If you ever do want embeddings, the entire retrieval layer hides behind a single function (`retrieveChunks` in `learning.ts`). Swap the implementation, keep the `StoredTranscriptIndex` shape, and nothing else has to change. But for single-user, single-video Q&A on a local model, classic BM25 is the right tool — and it's been the right tool for 25 years.
+We did layer two things on top to deal with BM25's blind spot around paraphrases — contextual retrieval at the chunk level, query rewriting + RRF at the query level. Between those, "shipped" vs "launched" mostly stops being a problem for chat. It's possible that at some point we'd hit the wall where embeddings win anyway, we just haven't gotten there with what we've built.
 
-This is the same machinery used during summary generation: every section heading runs through `findEvidenceForQuote` against the BM25 index, and the top match's real `timeSec` becomes the section's clickable timecode chip.
+If you want to try embeddings, the whole retrieval layer lives in a single function (`retrieveChunks` in `learning.ts`) — keep the `StoredTranscriptIndex` shape and swap the implementation. For this app BM25 was enough. Multi-video search or cross-corpus retrieval are different problems where we'd want to measure before assuming the same answer.
 
 ## Local setup
 
@@ -634,32 +653,15 @@ yarn --cwd client test  # Run the vitest suite
 
 ![Terminal screenshot — yarn start](placeholder://yarn-start-terminal.png "Replace with: terminal screenshot showing Ollama, Strapi, and TanStack client all booting up")
 
-## What this stack got right
-
-A few things stood out from putting this together:
-
-- **TanStack server functions feel like RPC.** No REST routes, no axios, no manual fetch — just a typed function call from the component to a Zod-validated handler that runs on the server. The Strapi REST layer hides behind one services module.
-- **TanStack AI's adapter pattern means swapping models is a one-line change.** `createOllamaChat(modelName, host)` today, `createOpenAIChat(...)` tomorrow if you want to lift this into the cloud. Tools, structured outputs, streaming — same API across providers.
-- **Structured outputs via Zod + Ollama's JSON mode are remarkably reliable** for a 4B-effective local model, especially with `temperature: 0.3`. The schema `.describe()` calls double as soft constraints in the prompt — the model usually respects the field-length hints, and we clamp on the client just in case.
-- **BM25 is enough for single-video Q&A.** Embeddings would add a model download and a vector store for limited benefit when the entire transcript fits in the local model's context. BM25 + contextual retrieval + RRF gets you 90% of the way there with zero operational overhead.
-- **Local-first really is local.** No API keys to manage, no cloud bills, no rate limits. The price is that you live with whatever your hardware can run — which for a Q4 Gemma on an M-series Mac is more than enough to summarize a one-hour video in under five minutes.
-
 ## Where to go from here
 
-The architecture is intentionally small and swappable. Want to use embeddings instead of BM25? `retrieveChunks` in `learning.ts` is the single injection point. Want to add a new tool? Define it with `toolDefinition`, export it from `chat-tools.ts`, pass it into the `tools: [...]` array in `api.chat.tsx` — the agent loop handles the rest. Want to swap the LLM? Change `OLLAMA_MODEL` (or replace the adapter entirely with any other TanStack AI adapter).
+The architecture is deliberately swappable. Want embeddings instead of BM25? `retrieveChunks` in `learning.ts` is the single injection point — keep the `StoredTranscriptIndex` shape and nothing downstream has to change. 
 
-## This is open source — fork it, ship it, send a PR
+Want a new tool? Define it with `toolDefinition`, export it from `chat-tools.ts`, add it to the `tools: [...]` array in `api.chat.tsx`. Want a different model or provider? Change `OLLAMA_MODEL`, or replace the adapter with any other TanStack AI adapter.
 
-**The whole project is MIT-licensed and lives on GitHub.** It was built in the open from day one, and it's meant to be picked up, taken apart, and made better by anyone who finds it useful. There's no "official" hosted version — the repo *is* the product.
+The project is MIT. Issues and PRs welcome. Directions that aren't done yet.
 
-A few ways to get involved:
-
-- **Fork it and make it yours.** The codebase is small enough to read in an afternoon, the architecture is intentionally swappable (BM25 → embeddings, Ollama → any TanStack AI adapter, SQLite → Postgres), and there's no auth or multi-tenant baggage to wade through. If you want a personal Notion-replacement for technical YouTube content, this is a good starting point — clone it, point it at your favorite local model, and you're done.
-- **Open issues and PRs.** Bug reports, feature requests, and pull requests are all welcome. Some directions that would obviously make this better and aren't done yet: a Whisper-based transcript fallback for videos with no captions, an export-to-Markdown-vault flow for Obsidian users, a Tavily/Brave swap-in for the `web_search` tool, a richer notes editor on the learn page, multi-user mode behind Strapi auth.
-- **Try it with a different stack.** The interesting ideas here — deterministic timecode grounding, the single-pass / map-reduce cutover, contextual retrieval with multi-query RRF — aren't tied to TanStack or Strapi. If you reimplement any of this in Next.js, Remix, FastAPI, or whatever, drop a link in an issue. We'd love to see it.
-- **File issues for things that confused you.** Documentation is part of the project. If a section of `docs/architecture.md` lost you, that's a bug worth fixing.
-
-The full source, including the complete architecture deep-dive in `docs/architecture.md`, is at **[github.com/codingafterthirty/yt-knowledge-base](https://github.com/codingafterthirty/yt-knowledge-base)**. Star it if it's useful, fork it if you want to extend it, and don't hesitate to open a PR — even a tiny one.
+Thanks for checking out the post, if have any question, join us during our open office ours on Discord. Monday through Friday 12:30pm CST.  Or ask in the project repo.
 
 **Citations**
 
@@ -674,4 +676,4 @@ The full source, including the complete architecture deep-dive in `docs/architec
 - Anthropic — Contextual Retrieval: https://www.anthropic.com/news/contextual-retrieval
 - Reciprocal Rank Fusion (Cormack et al.): https://plg.uwaterloo.ca/~gvcormac/cormacksigir09-rrf.pdf
 - Okapi BM25 reference (Lucene): https://lucene.apache.org/core/8_0_0/core/org/apache/lucene/search/similarities/BM25Similarity.html
-- Tau2 tool-use benchmark: https://arxiv.org/abs/2406.12045
+- Berkeley Function Calling Leaderboard (BFCL): https://gorilla.cs.berkeley.edu/leaderboard.html
