@@ -1,0 +1,24 @@
+{
+  "collectionName": "components_content_sections",
+  "info": {
+    "displayName": "Section",
+    "description": "A content section. `timeSec` is optional — populated for video posts (clickable seek), omitted for articles/blogs."
+  },
+  "options": {},
+  "attributes": {
+    "timeSec": {
+      "type": "integer",
+      "min": 0
+    },
+    "heading": {
+      "type": "string",
+      "required": true,
+      "maxLength": 200
+    },
+    "body": {
+      "type": "text",
+      "required": true,
+      "maxLength": 2000
+    }
+  }
+}

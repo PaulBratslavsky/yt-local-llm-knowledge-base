@@ -1,0 +1,56 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Node
+node_modules/
+*.log
+yarn-error.log
+npm-debug.log*
+.pnp.*
+.eslintcache
+.tsbuildinfo
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# TanStack / Vinxi / Nitro build output
+dist/
+dist-ssr/
+.nitro/
+.tanstack/
+.output/
+.vinxi/
+.wrangler/
+__unconfig*
+todos.json
+
+# Tests / coverage
+coverage/
+
+# Strapi
+client/public/uploads/*
+!client/public/uploads/.gitkeep
+server/.tmp/
+server/.strapi/
+server/.strapi-updater.json
+server/.strapi-cloud.json
+server/exports/
+server/dist/
+server/build/
+server/license.txt
+server/public/uploads/*
+!server/public/uploads/.gitkeep
+
+# Databases
+*.sqlite
+*.sqlite3
+*.sql
+*.db

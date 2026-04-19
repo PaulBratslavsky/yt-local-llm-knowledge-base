@@ -1,0 +1,20 @@
+{
+  "collectionName": "components_content_action_steps",
+  "info": {
+    "displayName": "Action step",
+    "description": "A concrete step the reader can take. Repeatable; the post renders these as a numbered plan at the end of the summary."
+  },
+  "options": {},
+  "attributes": {
+    "title": {
+      "type": "string",
+      "required": true,
+      "maxLength": 120
+    },
+    "body": {
+      "type": "text",
+      "required": true,
+      "maxLength": 600
+    }
+  }
+}

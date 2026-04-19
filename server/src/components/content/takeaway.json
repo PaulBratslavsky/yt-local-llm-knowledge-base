@@ -1,0 +1,15 @@
+{
+  "collectionName": "components_content_takeaways",
+  "info": {
+    "displayName": "Takeaway",
+    "description": "A single key-takeaway bullet. Repeatable on posts (video summaries, future articles/blogs)."
+  },
+  "options": {},
+  "attributes": {
+    "text": {
+      "type": "string",
+      "required": true,
+      "maxLength": 280
+    }
+  }
+}

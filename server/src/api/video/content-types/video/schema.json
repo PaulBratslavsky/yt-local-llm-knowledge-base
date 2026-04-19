@@ -1,0 +1,100 @@
+{
+  "kind": "collectionType",
+  "collectionName": "videos",
+  "info": {
+    "singularName": "video",
+    "pluralName": "videos",
+    "displayName": "Video",
+    "description": "A YouTube video added to the knowledge base. Each row holds the source metadata, the user's own caption/tags, the cached transcript, and the AI-generated summary. Dedupe key: `youtubeVideoId` (unique)."
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "transcript": {
+      "type": "relation",
+      "relation": "oneToOne",
+      "target": "api::transcript.transcript"
+    },
+    "youtubeVideoId": {
+      "type": "string",
+      "required": true,
+      "unique": true,
+      "maxLength": 32
+    },
+    "url": {
+      "type": "text",
+      "required": true,
+      "maxLength": 2000
+    },
+    "videoTitle": {
+      "type": "string",
+      "maxLength": 300
+    },
+    "videoAuthor": {
+      "type": "string",
+      "maxLength": 200
+    },
+    "videoThumbnailUrl": {
+      "type": "text",
+      "maxLength": 2000
+    },
+    "caption": {
+      "type": "text",
+      "maxLength": 500
+    },
+    "notes": {
+      "type": "richtext",
+      "description": "Free-form user notes for this video, stored as Markdown. Edited via the Tiptap editor on the learn page; the Strapi admin panel's built-in markdown editor works as a fallback."
+    },
+    "tags": {
+      "type": "relation",
+      "relation": "manyToMany",
+      "target": "api::tag.tag",
+      "inversedBy": "videos"
+    },
+    "summaryStatus": {
+      "type": "enumeration",
+      "enum": ["pending", "generated", "failed"],
+      "required": true,
+      "default": "pending"
+    },
+    "summaryTitle": {
+      "type": "string",
+      "maxLength": 200
+    },
+    "summaryDescription": {
+      "type": "text",
+      "maxLength": 500
+    },
+    "summaryOverview": {
+      "type": "richtext"
+    },
+    "summaryGeneratedAt": {
+      "type": "datetime"
+    },
+    "aiModel": {
+      "type": "string",
+      "maxLength": 100
+    },
+    "transcriptSegments": {
+      "type": "json"
+    },
+    "keyTakeaways": {
+      "type": "component",
+      "repeatable": true,
+      "component": "content.takeaway"
+    },
+    "sections": {
+      "type": "component",
+      "repeatable": true,
+      "component": "content.section"
+    },
+    "actionSteps": {
+      "type": "component",
+      "repeatable": true,
+      "component": "content.action-step"
+    }
+  }
+}
