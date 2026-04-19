@@ -30,21 +30,13 @@ import {
 } from '#/lib/services/transcript';
 import { withRetry } from '#/lib/retry';
 import { fetchYouTubeTranscript } from '#/lib/services/youtube-transcript';
-
-// Optional residential proxy for the transcript fetch. Set this when the
-// server IP hits YouTube's "sign in to confirm you're not a bot" wall —
-// typically only needed for datacenter IPs or high-volume scraping. Leave
-// unset for local dev.
-const TRANSCRIPT_PROXY_URL = process.env.TRANSCRIPT_PROXY_URL;
-
-// All AI calls go through @tanstack/ai-ollama against Ollama's native
-// HTTP API. OLLAMA_BASE_URL still defaults to the `/v1` OpenAI-compat
-// URL for backward compatibility with existing `.env` files — we strip
-// that suffix since the TanStack AI adapter doesn't need it.
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434/v1';
-const OLLAMA_HOST = OLLAMA_BASE_URL.replace(/\/v1\/?$/, '');
-const SUMMARY_MODEL = process.env.OLLAMA_MODEL ?? 'gemma4-kb:latest';
-const CHAT_MODEL = process.env.OLLAMA_CHAT_MODEL ?? SUMMARY_MODEL;
+import {
+  MAP_CONCURRENCY,
+  OLLAMA_HOST,
+  OLLAMA_MODEL as SUMMARY_MODEL,
+  OLLAMA_CHAT_MODEL as CHAT_MODEL,
+  TRANSCRIPT_PROXY_URL,
+} from '#/lib/env';
 
 // TanStack AI Ollama adapters. Two separate adapters because SUMMARY_MODEL
 // and CHAT_MODEL can differ (you might want a bigger model for summaries
@@ -493,10 +485,7 @@ async function generateSummarySinglePass(
 // headroom: each extra slot adds ~3GB for KV cache on an 8B model at
 // num_ctx=32768. On a 24GB M4 with Chrome/editor/etc. open, 2 can push
 // you into swap and end up slower. On a 48GB+ Mac, 2-3 is safe.
-const MAP_CONCURRENCY = Math.max(
-  1,
-  Math.min(parseInt(process.env.MAP_CONCURRENCY ?? '1', 10) || 1, 4),
-);
+// (Resolved + clamped to [1,4] in `#/lib/env`.)
 
 async function generateSummaryMapReduce(
   transcript: TranscriptData,

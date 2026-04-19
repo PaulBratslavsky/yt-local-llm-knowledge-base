@@ -4,6 +4,7 @@ import { createOllamaChat } from '@tanstack/ai-ollama';
 import { fetchVideoByVideoIdService } from '#/lib/services/videos';
 import { prepareChatPrompt } from '#/lib/services/learning';
 import { webSearchTool } from '#/lib/services/chat-tools';
+import { OLLAMA_HOST, OLLAMA_CHAT_MODEL as CHAT_MODEL } from '#/lib/env';
 
 // Streaming chat endpoint (TanStack AI migration).
 //
@@ -19,11 +20,6 @@ import { webSearchTool } from '#/lib/services/chat-tools';
 // API (not the OpenAI-compat `/v1` endpoint). Our existing env var points at
 // `.../v1`, so we strip the suffix here for backward compatibility with any
 // existing `.env` files.
-
-const RAW_OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434/v1';
-const OLLAMA_HOST = RAW_OLLAMA_BASE_URL.replace(/\/v1\/?$/, '');
-const CHAT_MODEL =
-  process.env.OLLAMA_CHAT_MODEL ?? process.env.OLLAMA_MODEL ?? 'gemma4-kb:latest';
 
 // Client-side message shape. `toolCalls` on an assistant message carries
 // the tool invocations + their results from that turn — the server
