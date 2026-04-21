@@ -4,7 +4,7 @@ A local-first, single-user knowledge base for YouTube videos. Paste a URL, get a
 
 No accounts. No cloud AI. Runs entirely on your machine against a local [Ollama](https://ollama.com) instance and a local [Strapi](https://strapi.io) DB.
 
-**note: this is a project that I build for [this blog post](https://strapi.io/blog/local-first-ai-with-gemma-4-ollama-tan-stack-ai-a-you-tube-knowledge-base)
+**note**: this is a project that I build for [this blog post](https://strapi.io/blog/local-first-ai-with-gemma-4-ollama-tan-stack-ai-a-you-tube-knowledge-base)
 
 There is a more feature rich version if you are interested that I am continuing to work on found [here](https://github.com/PaulBratslavsky/yt-local-llm-knowledge-base-with-mcp). 
 
